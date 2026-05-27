@@ -22,7 +22,9 @@ describe("My Probot app", () => {
 
   beforeEach(() => {
     nock.disableNetConnect();
-    process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.OPENAI_BASE_URL = "https://api.openai.com/v1";
+    process.env.OPENAI_MODEL = "gpt-4.1-mini";
 
     probot = new Probot({
       appId: 123,
@@ -39,7 +41,9 @@ describe("My Probot app", () => {
   });
 
   afterEach(() => {
-    delete process.env.DEEPSEEK_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    delete process.env.OPENAI_MODEL;
     nock.cleanAll();
     nock.enableNetConnect();
   });
@@ -68,9 +72,9 @@ describe("My Probot app", () => {
       })
       .reply(200);
 
-    const deepseekMock = nock("https://api.deepseek.com")
-      .post("/chat/completions", (body) => {
-        assert.equal(body.model, "deepseek-chat");
+    const openaiMock = nock("https://api.openai.com")
+      .post("/v1/chat/completions", (body) => {
+        assert.equal(body.model, "gpt-4.1-mini");
         assert.equal(body.temperature, 0.3);
         assert.match(body.messages[0].content, /src\/index\.js: 24 行变更/);
         return true;
@@ -79,14 +83,14 @@ describe("My Probot app", () => {
         id: "chatcmpl-test",
         object: "chat.completion",
         created: 1710000000,
-        model: "deepseek-chat",
+        model: "gpt-4.1-mini",
         choices: [
           {
             index: 0,
             message: {
               role: "assistant",
               content:
-                "变更概述：新增 PR 自动描述能力\n主要修改点：接入 DeepSeek 并自动评论\n测试建议：执行 webhook 集成测试",
+                "变更概述：新增 PR 自动描述能力\n主要修改点：切换到 OpenAI 兼容配置\n测试建议：执行 webhook 集成测试",
             },
             finish_reason: "stop",
           },
@@ -96,6 +100,6 @@ describe("My Probot app", () => {
     await probot.receive({ name: "pull_request", payload });
 
     assert.deepStrictEqual(githubMock.pendingMocks(), []);
-    assert.deepStrictEqual(deepseekMock.pendingMocks(), []);
+    assert.deepStrictEqual(openaiMock.pendingMocks(), []);
   });
 });
