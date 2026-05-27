@@ -54,44 +54,47 @@ async function postPrComment(context, issueNumber, body) {
 export default (app) => {
   app.log.info("Yay, the app was loaded!");
 
-  app.on(["pull_request.opened", "pull_request.synchronize"], async (context) => {
-    const pr = context.payload.pull_request;
-    const prNumber = pr.number;
+  app.on(
+    ["pull_request.opened", "pull_request.synchronize", "pull_request.reopened"],
+    async (context) => {
+      const pr = context.payload.pull_request;
+      const prNumber = pr.number;
 
-    if (!process.env.OPENAI_API_KEY) {
-      app.log.error({ prNumber }, "Missing OPENAI_API_KEY");
-      return;
-    }
-
-    app.log.info({ prNumber }, "Generating PR description");
-
-    try {
-      const { data: files } = await context.octokit.rest.pulls.listFiles({
-        owner: context.payload.repository.owner.login,
-        repo: context.payload.repository.name,
-        pull_number: prNumber,
-        per_page: 100,
-      });
-
-      const diffSummary = buildDiffSummary(files);
-
-      if (!diffSummary) {
-        app.log.warn({ prNumber }, "No changed files found for PR");
+      if (!process.env.OPENAI_API_KEY) {
+        app.log.error({ prNumber }, "Missing OPENAI_API_KEY");
         return;
       }
 
-      const prDescription = await generatePrDescription(diffSummary);
+      app.log.info({ prNumber }, "Generating PR description");
 
-      if (!prDescription) {
-        app.log.warn({ prNumber }, "OpenAI-compatible API returned empty PR description");
-        return;
+      try {
+        const { data: files } = await context.octokit.rest.pulls.listFiles({
+          owner: context.payload.repository.owner.login,
+          repo: context.payload.repository.name,
+          pull_number: prNumber,
+          per_page: 100,
+        });
+
+        const diffSummary = buildDiffSummary(files);
+
+        if (!diffSummary) {
+          app.log.warn({ prNumber }, "No changed files found for PR");
+          return;
+        }
+
+        const prDescription = await generatePrDescription(diffSummary);
+
+        if (!prDescription) {
+          app.log.warn({ prNumber }, "OpenAI-compatible API returned empty PR description");
+          return;
+        }
+
+        await postPrComment(context, prNumber, `${COMMENT_HEADER}\n\n${prDescription}`);
+
+        app.log.info({ prNumber }, "Posted generated PR description");
+      } catch (error) {
+        app.log.error({ err: error, prNumber }, "Failed to generate PR description");
       }
-
-      await postPrComment(context, prNumber, `${COMMENT_HEADER}\n\n${prDescription}`);
-
-      app.log.info({ prNumber }, "Posted generated PR description");
-    } catch (error) {
-      app.log.error({ err: error, prNumber }, "Failed to generate PR description");
-    }
-  });
+    },
+  );
 };
