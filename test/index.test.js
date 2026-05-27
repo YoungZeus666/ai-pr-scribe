@@ -1,16 +1,14 @@
-import nock from "nock";
-// Requiring our app implementation
-import myProbotApp from "../index.js";
-import { Probot, ProbotOctokit } from "probot";
-const issueCreatedBody = { body: "Thanks for opening this issue!" };
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-// Requiring our fixtures
-import payload from "./fixtures/issues.opened.json" with { type: "json" };
-
-import { describe, beforeEach, afterEach, test } from "node:test";
 import assert from "node:assert";
+import { afterEach, beforeEach, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import nock from "nock";
+import { Probot, ProbotOctokit } from "probot";
+
+import myProbotApp from "../index.js";
+import payload from "./fixtures/pull_request.opened.json" with { type: "json" };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,6 +22,8 @@ describe("My Probot app", () => {
 
   beforeEach(() => {
     nock.disableNetConnect();
+    process.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+
     probot = new Probot({
       appId: 123,
       privateKey,
@@ -38,38 +38,64 @@ describe("My Probot app", () => {
     probot.load(myProbotApp);
   });
 
-  test("creates a comment when an issue is opened", async () => {
-    const mock = nock("https://api.github.com")
-      // Test that we correctly return a test token
+  afterEach(() => {
+    delete process.env.DEEPSEEK_API_KEY;
+    nock.cleanAll();
+    nock.enableNetConnect();
+  });
+
+  test("creates an AI-generated comment when a pull request is opened", async () => {
+    const githubMock = nock("https://api.github.com")
       .post("/app/installations/2/access_tokens")
       .reply(200, {
         token: "test",
         permissions: {
+          pull_requests: "write",
           issues: "write",
         },
       })
-
-      // Test that a comment is posted
-      .post("/repos/hiimbex/testing-things/issues/1/comments", (body) => {
-        assert.deepEqual(body, issueCreatedBody);
+      .get("/repos/hiimbex/testing-things/pulls/7/files?per_page=100")
+      .reply(200, [
+        { filename: "src/index.js", changes: 24 },
+        { filename: "package.json", changes: 6 },
+      ])
+      .post("/repos/hiimbex/testing-things/issues/7/comments", (body) => {
+        assert.match(
+          body.body,
+          /AI 自动生成的 PR 描述[\s\S]*变更概述：新增 PR 自动描述能力/,
+        );
         return true;
       })
       .reply(200);
 
-    // Receive a webhook event
-    await probot.receive({ name: "issues", payload });
+    const deepseekMock = nock("https://api.deepseek.com")
+      .post("/chat/completions", (body) => {
+        assert.equal(body.model, "deepseek-chat");
+        assert.equal(body.temperature, 0.3);
+        assert.match(body.messages[0].content, /src\/index\.js: 24 行变更/);
+        return true;
+      })
+      .reply(200, {
+        id: "chatcmpl-test",
+        object: "chat.completion",
+        created: 1710000000,
+        model: "deepseek-chat",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content:
+                "变更概述：新增 PR 自动描述能力\n主要修改点：接入 DeepSeek 并自动评论\n测试建议：执行 webhook 集成测试",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      });
 
-    assert.deepStrictEqual(mock.pendingMocks(), []);
-  });
+    await probot.receive({ name: "pull_request", payload });
 
-  afterEach(() => {
-    nock.cleanAll();
-    nock.enableNetConnect();
+    assert.deepStrictEqual(githubMock.pendingMocks(), []);
+    assert.deepStrictEqual(deepseekMock.pendingMocks(), []);
   });
 });
-
-// For more information about testing with Jest see:
-// https://facebook.github.io/jest/
-
-// For more information about testing with Nock see:
-// https://github.com/nock/nock
