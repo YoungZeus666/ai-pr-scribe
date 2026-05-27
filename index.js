@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 const COMMENT_HEADER = "🤖 **AI 自动生成的 PR 描述** (仅供参考)";
+const DEFAULT_OPENAI_MODEL = "gpt-4.1-mini";
 
 function buildDiffSummary(files) {
   return files.map((file) => `- ${file.filename}: ${file.changes} 行变更`).join("\n");
@@ -19,16 +20,18 @@ function buildPrompt(diffSummary) {
   ].join("\n");
 }
 
-function createDeepSeekClient() {
+function createOpenAIClient() {
+  const baseURL = process.env.OPENAI_BASE_URL;
+
   return new OpenAI({
-    apiKey: process.env.DEEPSEEK_API_KEY,
-    baseURL: "https://api.deepseek.com",
+    apiKey: process.env.OPENAI_API_KEY,
+    ...(baseURL ? { baseURL } : {}),
   });
 }
 
-async function generatePrDescription(diffSummary, client = createDeepSeekClient()) {
+async function generatePrDescription(diffSummary, client = createOpenAIClient()) {
   const response = await client.chat.completions.create({
-    model: "deepseek-chat",
+    model: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
     messages: [{ role: "user", content: buildPrompt(diffSummary) }],
     temperature: 0.3,
   });
@@ -55,8 +58,8 @@ export default (app) => {
     const pr = context.payload.pull_request;
     const prNumber = pr.number;
 
-    if (!process.env.DEEPSEEK_API_KEY) {
-      app.log.error({ prNumber }, "Missing DEEPSEEK_API_KEY");
+    if (!process.env.OPENAI_API_KEY) {
+      app.log.error({ prNumber }, "Missing OPENAI_API_KEY");
       return;
     }
 
@@ -80,7 +83,7 @@ export default (app) => {
       const prDescription = await generatePrDescription(diffSummary);
 
       if (!prDescription) {
-        app.log.warn({ prNumber }, "DeepSeek returned empty PR description");
+        app.log.warn({ prNumber }, "OpenAI-compatible API returned empty PR description");
         return;
       }
 
