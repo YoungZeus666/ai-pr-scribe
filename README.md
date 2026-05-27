@@ -4,11 +4,26 @@
 
 ## Setup
 
-```sh
-# Install dependencies
-npm install
+1. Install dependencies:
 
-# Run the bot
+```sh
+npm install
+```
+
+2. Create a `.env` file with your app and model settings:
+
+```dotenv
+APP_ID=
+WEBHOOK_SECRET=development
+PRIVATE_KEY=
+OPENAI_API_KEY=
+OPENAI_BASE_URL=
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+3. Run the bot:
+
+```sh
 npm start
 ```
 
